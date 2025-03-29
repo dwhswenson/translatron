@@ -13,9 +13,8 @@ dynamodb = boto3.resource("dynamodb")
 s3 = boto3.client("s3")
 
 TABLE_NAME = os.environ["DYNAMODB_TABLE"]
-BUCKET = os.environ["SMS_JSON_BUCKET"]
 TRANSLATOR_PROVIDER = os.getenv("TRANSLATOR_PROVIDER", "amazon").lower()
-TARGET_LANGUAGES = os.getenv("TARGET_LANGUAGES", "es,fr,de").split(",")
+TARGET_LANGUAGES = os.getenv("TARGET_LANGUAGES").split(",")
 
 
 def get_translator():
@@ -28,6 +27,40 @@ def get_translator():
 
 
 translator = get_translator()
+
+### Temporary setup
+def forward_message(record):
+    translations = record['translations']
+    translations.append({'lang': record['original_lang'], 'text':
+                        record['original_text']})
+
+    translations_dict = {t['lang']: t['text'] for t in translations}
+
+    users = json.loads(os.getenv('USER_INFO'))
+    # TODO: check if sender not in users? maybe do something different?
+    targets = set(users) - {record['sender']}
+    msg_pairs = [(target, users[target]['lang']) for target in targets]
+
+    # special case override for testing
+    if record['sender'] == '+13121234567':
+        msg_pairs = [(os.getenv('TEST_PHONE'), 'fa')]
+
+    for send_to, lang in msg_pairs:
+        logger.info(f"sender={record['sender']} {send_to=} {lang=}")
+        msg = translations_dict[lang]
+        logger.info("About to send: %s", msg)
+        from twilio.rest import Client
+        account_sid = os.environ['TWILIO_ACCOUNT_SID']
+        auth_token = os.environ['TWILIO_AUTH_TOKEN']
+        twilio_number = os.environ['TWILIO_NUMBER']
+        logger.info("Connecting to client")
+        client = Client(account_sid, auth_token)
+        logger.info("Sending message")
+        message = client.messages.create(
+            body=msg,
+            from_=twilio_number,
+            to=send_to
+        )
 
 import logging
 logger = logging.getLogger()
@@ -74,25 +107,13 @@ def lambda_handler(event, context):
         "original_lang": original_lang,
         "original_text": text,
         "translations": translations,
-        "timestamp": timestamp
+        "timestamp": timestamp,
     }
 
-    # Persist metadata to DynamoDB
-    dynamodb.Table(TABLE_NAME).put_item(Item={
-        "message_id": message_id,
-        "conversation_id": conversation_id,
-        "sender": sender,
-        "timestamp": timestamp
-    })
+    dynamodb.Table(TABLE_NAME).put_item(Item=record)
 
-    # Persist full JSON to S3
-    key = f"sms/{timestamp[:10]}/{message_id}.json"
-    s3.put_object(
-        Bucket=BUCKET,
-        Key=key,
-        Body=json.dumps(record).encode("utf-8"),
-        ContentType="application/json"
-    )
+    # TEMP: Send SMS translation; replace with push notification
+    forward_message(record)
 
     return {
         "statusCode": 200,

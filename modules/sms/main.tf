@@ -164,7 +164,6 @@ resource "aws_lambda_function" "sms_handler" {
       TWILIO_ACCOUNT_SID = var.twilio_account_sid
       TWILIO_AUTH_TOKEN  = var.twilio_auth_token
       TWILIO_NUMBER      = var.twilio_phone_number
-      DEV_VERSION        = var.dev_version
     }
   }
 }

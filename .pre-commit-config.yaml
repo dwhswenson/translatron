@@ -10,5 +10,3 @@ repos:
     rev: v2.2.1
     hooks:
       - id: tofu_fmt
-        args: [-recursive]
-        pass_filenames: false

@@ -48,8 +48,3 @@ variable "sms_handler_handler" {
   description = "The handler for the SMS Lambda function (e.g., sms_handler.lambda_handler)."
   type        = string
 }
-
-variable "dev_version" {
-  description = "The version of the SMS Lambda function."
-  type        = string
-}

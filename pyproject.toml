@@ -42,8 +42,8 @@ documentation = "https://your-org.github.io/your-package"
 repository    = "https://github.com/dwhswenson/translatron" 
 changelog     = "https://github.com/dwhswenson/translatron/releases"
 
-#[project.scripts]
-#your-cli = "translatron.cli:main"
+[project.scripts]
+translatron = "translatron.cli:cli"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

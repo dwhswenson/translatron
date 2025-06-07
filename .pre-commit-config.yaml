@@ -6,8 +6,9 @@ repos:
       - id: ruff
         args: [--fix]
 
-  #- repo: https://github.com/tofuutils/pre-commit-opentofu
-    #hooks:
-      #- id: tofu_fmt
-        #args: [-recursive]
-        #pass_filenames: false
+  - repo: https://github.com/tofuutils/pre-commit-opentofu
+    rev: v2.2.1
+    hooks:
+      - id: tofu_fmt
+        args: [-recursive]
+        pass_filenames: false

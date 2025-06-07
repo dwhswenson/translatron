@@ -24,7 +24,7 @@ def cli():
 
 @cli.command("purchase-number")
 @click.option(
-    "--area-code", "-a", 
+    "--area-code", "-a",
     multiple=True,
     default=DEFAULT_PREFERRED_AREA_CODES,
     help="Preferred area code to search for. Can be provided multiple times."

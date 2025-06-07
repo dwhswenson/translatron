@@ -1,10 +1,10 @@
 resource "aws_iam_policy" "this" {
-  name   = "${var.project_name}-language-detect-policy"
+  name = "${var.project_name}-language-detect-policy"
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = [
+      Effect = "Allow"
+      Action = [
         "comprehend:DetectDominantLanguage",
         "translate:TranslateText"
       ]

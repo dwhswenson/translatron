@@ -104,9 +104,9 @@ resource "aws_backup_plan" "dynamo_backup_plan" {
   rule {
     rule_name         = "daily-backup"
     target_vault_name = aws_backup_vault.dynamo_backup_vault.name
-    schedule          = "cron(0 5 * * ? *)"  # Daily at 5 AM UTC
+    schedule          = "cron(0 5 * * ? *)" # Daily at 5 AM UTC
     lifecycle {
-      delete_after = 30  # Retain backups for 30 days
+      delete_after = 30 # Retain backups for 30 days
     }
   }
 }
@@ -117,8 +117,8 @@ resource "aws_iam_role" "backup_role" {
     Version = "2012-10-17",
     Statement = [
       {
-        Action    = "sts:AssumeRole",
-        Effect    = "Allow",
+        Action = "sts:AssumeRole",
+        Effect = "Allow",
         Principal = {
           Service = "backup.amazonaws.com"
         }
@@ -154,25 +154,25 @@ resource "aws_lambda_function" "sms_handler" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE  = aws_dynamodb_table.sms_messages.name
-      TRANSLATOR_PROVIDER = "amazon"  # TODO make variable
-      TARGET_LANGUAGES = "en,fa" # TODO make variable (or get from user_info?)
+      DYNAMODB_TABLE      = aws_dynamodb_table.sms_messages.name
+      TRANSLATOR_PROVIDER = "amazon" # TODO make variable
+      TARGET_LANGUAGES    = "en,fa"  # TODO make variable (or get from user_info?)
       # Additional environment variables as needed (e.g., translation API keys)
       # temporary twilio testing
-      USER_INFO = var.user_info
-      TEST_PHONE = var.test_phone
+      USER_INFO          = var.user_info
+      TEST_PHONE         = var.test_phone
       TWILIO_ACCOUNT_SID = var.twilio_account_sid
-      TWILIO_AUTH_TOKEN = var.twilio_auth_token
-      TWILIO_NUMBER = var.twilio_phone_number
-      DEV_VERSION = var.dev_version
+      TWILIO_AUTH_TOKEN  = var.twilio_auth_token
+      TWILIO_NUMBER      = var.twilio_phone_number
+      DEV_VERSION        = var.dev_version
     }
   }
 }
 
 # Create a Lambda Function URL for the SMS function
 resource "aws_lambda_function_url" "sms_function_url" {
-  function_name     = aws_lambda_function.sms_handler.function_name
-  authorization_type = "NONE"  # Allow public access
+  function_name      = aws_lambda_function.sms_handler.function_name
+  authorization_type = "NONE" # Allow public access
   cors {
     allow_origins = ["*"]
     allow_methods = ["POST"]
@@ -180,9 +180,9 @@ resource "aws_lambda_function_url" "sms_function_url" {
 }
 
 resource "aws_lambda_permission" "allow_all" {
-  statement_id  = "AllowPublicInvoke"
-  action        = "lambda:InvokeFunctionUrl"
-  function_name = aws_lambda_function.sms_handler.function_name
-  principal     = "*"
+  statement_id           = "AllowPublicInvoke"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.sms_handler.function_name
+  principal              = "*"
   function_url_auth_type = "NONE"
 }

@@ -78,8 +78,8 @@ resource "aws_lambda_function" "voice_handler" {
 
 # Create a Lambda Function URL for the Voice function
 resource "aws_lambda_function_url" "voice_function_url" {
-  function_name     = aws_lambda_function.voice_handler.function_name
-  authorization_type = "NONE"  # Consider using AWS_IAM for additional security
+  function_name      = aws_lambda_function.voice_handler.function_name
+  authorization_type = "NONE" # Consider using AWS_IAM for additional security
   cors {
     allow_origins = ["*"]
     allow_methods = ["POST"]

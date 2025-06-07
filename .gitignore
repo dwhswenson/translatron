@@ -1,0 +1,14 @@
+
+# pixi environments
+.pixi
+*.egg-info
+
+__pycache__
+*pyc
+
+*.tfvars
+terraform.tfstate
+.terraform
+
+.coverage
+htmlcov

@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools", "wheel", "pip"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "translatron"
+version = "0.0.1.dev0"
+description = "Tools for Twilio+AWS translation projects"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors         = [
+    { name = "David W.H. Swenson", email = "dwhs@hyperblazer.net" },
+]
+keywords = ["translation", "aws", "twilio", "transcription", "text-to-speech"]
+classifiers     = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+]
+
+dependencies = [
+  "twilio",
+  "boto3",
+  "click",
+  "pydantic",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "moto[all]",
+    "ruff",
+    "pre-commit",
+]
+
+[project.urls]
+homepage      = "https://github.com/dwhswenson/translatron"
+documentation = "https://your-org.github.io/your-package"
+repository    = "https://github.com/dwhswenson/translatron" 
+changelog     = "https://github.com/dwhswenson/translatron/releases"
+
+#[project.scripts]
+#your-cli = "translatron.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["osx-64"]
+
+[tool.pixi.pypi-dependencies]
+translatron = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.tasks]
+
+[tool.ruff]
+line-length = 80

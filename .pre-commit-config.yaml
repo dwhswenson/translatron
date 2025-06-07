@@ -1,0 +1,13 @@
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.13
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  #- repo: https://github.com/tofuutils/pre-commit-opentofu
+    #hooks:
+      #- id: tofu_fmt
+        #args: [-recursive]
+        #pass_filenames: false

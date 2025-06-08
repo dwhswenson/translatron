@@ -37,6 +37,8 @@ def forward_message(record):
     translations_dict = {t['lang']: t['text'] for t in translations}
 
     users = json.loads(os.getenv('USER_INFO'))
+    users = users[os.environ['TWILIO_NUMBER']]
+
     # TODO: check if sender not in users? maybe do something different?
     targets = set(users) - {record['sender']}
     msg_pairs = [(target, users[target]['lang']) for target in targets]
@@ -56,13 +58,13 @@ def forward_message(record):
         logger.info("Connecting to client")
         client = Client(account_sid, auth_token)
         logger.info("Sending message")
-        message = client.messages.create(
+        message = client.messages.create(  # noqa F841
             body=msg,
             from_=twilio_number,
             to=send_to
         )
 
-import logging
+import logging  # noqa E402
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 

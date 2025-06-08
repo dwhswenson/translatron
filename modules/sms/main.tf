@@ -185,3 +185,8 @@ resource "aws_lambda_permission" "allow_all" {
   principal              = "*"
   function_url_auth_type = "NONE"
 }
+
+resource "aws_cloudwatch_log_group" "sms_handler" {
+  name              = "/aws/lambda/${aws_lambda_function.sms_handler.function_name}"
+  retention_in_days = 30 # TODO: make this a variable
+}

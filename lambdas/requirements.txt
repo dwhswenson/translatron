@@ -1,2 +1,5 @@
 boto3
-twilio  # temporary
+twilio
+pydantic
+click
+# translatron

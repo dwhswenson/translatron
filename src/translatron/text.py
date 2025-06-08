@@ -28,6 +28,7 @@ class TranslatronText:  # TODO: make this an ABC
 
     # ---- public entrypoint -------------------------------------------------
     def __call__(self, event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+        logger.info("Received event: %s", event)  # TODO: remove in production
         message = self.parse_event(event)
         translations, orig_lang = self.detect_and_translate(message)
         record = TextRecord(

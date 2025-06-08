@@ -37,8 +37,6 @@ class StoreToDynamoDB(ActionBase):
 
 
 class SendTranslatedSMS(ActionBase):
-    """ """
-
     def __init__(
         self,
         user_info: Dict[str, Dict[str, Dict[str, str]]],
@@ -46,7 +44,7 @@ class SendTranslatedSMS(ActionBase):
     ):
         """
         Parameters
-        =========
+        ==========
         user_info: dict[str, dict[str, dict[str, str]]]
             Nested dictionary containing information to route messages to
             users. Structure is:

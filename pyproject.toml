@@ -34,6 +34,7 @@ dev = [
     "moto[all]",
     "ruff",
     "pre-commit",
+    "autorelease",
 ]
 
 [project.urls]

@@ -7,7 +7,9 @@ translation services.
 Overall, Translatron consists of three main components:
 
 1. A Python library to simplify writing the Twilio-and-translation focused AWS lambda
-   functions.
-2. Terraform modules to deploy the necessary AWS infrastructure.
+   functions. (`src/translatron`)
+2. Terraform modules to deploy the necessary AWS infrastructure. (`modules/`,
+   as well as the `.tf` files in the root directory)
 3. A set of example lambda functions that use the Python library to perform
-   translation of Twilio messages and voice mails.
+   translation of Twilio messages and voice mails, along with deployment tools
+   (`lambdas`)

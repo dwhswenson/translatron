@@ -2,9 +2,11 @@
 import base64
 import datetime
 import logging
+import os
 import uuid
 from typing import List, Dict, Any, Tuple
 from urllib.parse import parse_qs
+from twilio.request_validator import RequestValidator
 
 from .record import TextRecord
 from .translator import Translator
@@ -29,7 +31,15 @@ class TranslatronText:  # TODO: make this an ABC
     # ---- public entrypoint -------------------------------------------------
     def __call__(self, event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info("Received event: %s", event)  # TODO: remove in production
-        message = self.parse_event(event)
+        params = self.parse_event_params(event)
+        headers = event["headers"]
+        if not self.validate_twilio_event(params, headers):
+            logger.error("Invalid Twilio request signature")
+            return {
+                "statusCode": 403,
+                "body": "Forbidden: Invalid Twilio request signature",
+            }
+        message = self.get_message_details(params)
         translations, orig_lang = self.detect_and_translate(message)
         record = TextRecord(
             message_id=message["message_id"],
@@ -50,19 +60,46 @@ class TranslatronText:  # TODO: make this an ABC
         sender = event.get("From", "")
         return sender
 
-    def parse_event(self, event: Dict[str, Any]) -> Dict[str, str]:
+    def get_twilio_auth_token(self) -> str:
+        return os.getenv("TWILIO_AUTH_TOKEN", "")
+
+    def parse_event_params(self, event: Dict[str, Any]) -> Dict[str, List[str]]:
+        """Extract and parse parameters from the event body."""
         body_str = event.get("body", "")
         if event.get("isBase64Encoded", False):
             body_str = base64.b64decode(body_str).decode("utf-8")
 
-        params = parse_qs(body_str)
+        params = parse_qs(body_str, keep_blank_values=True)
+        return params
+
+    def validate_twilio_event(self, params, headers) -> bool:
+        auth_token = self.get_twilio_auth_token()
+        validator = RequestValidator(auth_token)
+
+        host = headers.get("Host")
+        if not host:
+            return False
+
+        url = f"https://{host}/"  # for lambdas, this will be correct
+        tw_sig = headers["x-twilio-signature"]
+
+        validator_params = {k: v[0] for k, v in params.items()}
+
+        is_valid = validator.validate(url, validator_params, tw_sig)
+        return is_valid
+
+    def get_message_details(
+        self, params: Dict[str, List[str]]
+    ) -> Dict[str, Any]:
         sender = params.get("From", [""])[0]
         logger.info("Received SMS from %s", sender)
         recipient = params.get("To", [""])[0]
         logger.info("Received SMS to %s", recipient)
         text = params.get("Body", [""])[0]
         logger.info("SMS text: %s", text)
-        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+        timestamp = (
+            datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
+        )
         logger.info("Timestamp: %s", timestamp)
 
         message_id = str(uuid.uuid4())

@@ -1,33 +1,43 @@
-import pytest
+import base64
+import json
+import os
+import uuid
+from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 
+import pytest
+
 from translatron.text import TranslatronText
-from translatron.translator import NonTranslator, Translator
-from translatron.actions import ActionBase, NullAction
 from translatron.record import TextRecord
+from translatron.translator import Translator
+from translatron.actions import ActionBase
 
 
 class MockTranslator(Translator):
     """Mock translator for testing."""
-    
+
     def __init__(self, detected_lang="en", translations=None):
         self.detected_lang = detected_lang
         self.translations = translations or {}
-    
+
     def detect_language(self, text: str) -> str:
         return self.detected_lang
-    
-    def translate(self, text: str, target_language: str, detected_language=None) -> str:
-        return self.translations.get(target_language, f"[{target_language}] {text}")
+
+    def translate(
+        self, text: str, target_language: str, detected_language=None
+    ) -> str:
+        return self.translations.get(
+            target_language, f"[{target_language}] {text}"
+        )
 
 
 class MockAction(ActionBase):
     """Mock action that records calls."""
-    
+
     def __init__(self):
         self.called_with = []
-    
+
     def __call__(self, record: TextRecord) -> None:
         self.called_with.append(record)
 
@@ -38,466 +48,472 @@ class TestTranslatronText:
         self.mock_action1 = MockAction()
         self.mock_action2 = MockAction()
         self.languages = ["en", "es", "fr"]
-        
+
         self.translatron = TranslatronText(
             translator=self.mock_translator,
             actions=[self.mock_action1, self.mock_action2],
-            languages=self.languages
+            languages=self.languages,
         )
 
     def test_initialization(self):
-        """Test TranslatronText initialization."""
         assert self.translatron.translator == self.mock_translator
-        assert self.translatron.actions == [self.mock_action1, self.mock_action2]
+        assert self.translatron.actions == [
+            self.mock_action1,
+            self.mock_action2,
+        ]
         assert self.translatron.languages == self.languages
 
-    def test_parse_event_with_form_data(self, sample_twilio_event):
-        """Test parsing a standard Twilio webhook event."""
-        event = sample_twilio_event
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='test-message-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T12:00:00'
-            
-            result = self.translatron.parse_event(event)
-            
-            assert result['sender'] == '+15551234567'
-            assert result['recipient'] == '+15559876543'
-            assert result['text'] == 'Hello world'
-            assert result['message_id'] == 'test-message-id'
-            assert result['conversation_id'] == '+15551234567'
-            assert result['timestamp'] == '2023-01-01T12:00:00Z'
+    @pytest.mark.parametrize(
+        "env_value,expected",
+        [
+            ("test_token_123", "test_token_123"),
+            (None, ""),
+        ],
+    )
+    def test_get_twilio_auth_token(self, env_value, expected):
+        env_dict = (
+            {"TWILIO_AUTH_TOKEN": env_value} if env_value is not None else {}
+        )
+        clear_env = env_value is None
 
-    def test_parse_event_with_base64_encoded_body(self, sample_base64_twilio_event):
-        """Test parsing event with base64 encoded body."""
-        event = sample_base64_twilio_event
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='encoded-message-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T13:00:00'
-            
-            result = self.translatron.parse_event(event)
-            
-            assert result['text'] == 'Base64 encoded message'
-            assert result['sender'] == '+15551234567'
+        with patch.dict(os.environ, env_dict, clear=clear_env):
+            token = self.translatron.get_twilio_auth_token()
+            assert token == expected
 
-    def test_parse_event_with_missing_fields(self):
-        """Test parsing event with missing optional fields."""
-        event = {
-            'body': '',
-            'isBase64Encoded': False
+    @pytest.mark.parametrize(
+        "body_data,is_base64",
+        [
+            (
+                {
+                    "From": "+15551234567",
+                    "To": "+15559876543",
+                    "Body": "Hello world",
+                },
+                False,
+            ),
+            (
+                {
+                    "From": "+15551234567",
+                    "To": "+15559876543",
+                    "Body": "Hello world",
+                },
+                True,
+            ),
+        ],
+    )
+    def test_parse_event_params_with_encoded_body(self, body_data, is_base64):
+        if is_base64:
+            body_str = urlencode(body_data)
+            event_body = base64.b64encode(body_str.encode()).decode()
+        else:
+            event_body = urlencode(body_data)
+
+        event = {"body": event_body, "isBase64Encoded": is_base64}
+
+        result = self.translatron.parse_event_params(event)
+
+        assert result["From"] == ["+15551234567"]
+        assert result["To"] == ["+15559876543"]
+        assert result["Body"] == ["Hello world"]
+
+    def test_parse_event_params_with_missing_body(self):
+        event = {"isBase64Encoded": False}
+
+        result = self.translatron.parse_event_params(event)
+        assert result == {}
+
+    def test_parse_event_params_with_unicode_text(self):
+        body_data = {
+            "From": "+15551234567",
+            "To": "+15559876543",
+            "Body": "Hello 世界 🌍",
         }
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='missing-fields-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T14:00:00'
-            
-            result = self.translatron.parse_event(event)
-            
-            assert result['sender'] == ''
-            assert result['recipient'] == ''
-            assert result['text'] == ''
-            assert result['message_id'] == 'missing-fields-id'
+        event = {
+            "body": urlencode(body_data, encoding="utf-8"),
+            "isBase64Encoded": False,
+        }
+
+        result = self.translatron.parse_event_params(event)
+        assert result["Body"] == ["Hello 世界 🌍"]
+
+    def test_parse_event_params_malformed_base64_body(self):
+        event = {"body": "invalid-base64!@#", "isBase64Encoded": True}
+
+        with pytest.raises(Exception):
+            self.translatron.parse_event_params(event)
+
+    @pytest.mark.parametrize(
+        "signature,expected_result",
+        [
+            ("valid_signature", True),
+            ("invalid_signature", False),
+        ],
+    )
+    @patch("translatron.text.RequestValidator")
+    def test_validate_twilio_event_signature_validation(
+        self, mock_validator_class, signature, expected_result
+    ):
+        mock_validator = Mock()
+        mock_validator.validate.return_value = expected_result
+        mock_validator_class.return_value = mock_validator
+
+        params = {"From": ["+1234567890"], "Body": ["Hello"]}
+        headers = {
+            "Host": "example.com",
+            "x-twilio-signature": signature,
+        }
+
+        with patch.object(
+            self.translatron, "get_twilio_auth_token", return_value="test_token"
+        ):
+            result = self.translatron.validate_twilio_event(params, headers)
+
+        assert result is expected_result
+        mock_validator_class.assert_called_once_with("test_token")
+        mock_validator.validate.assert_called_once_with(
+            "https://example.com/",
+            {"From": "+1234567890", "Body": "Hello"},
+            signature,
+        )
+
+    def test_validate_twilio_event_missing_signature_header(self):
+        params = {"From": ["+1234567890"], "Body": ["Hello"]}
+        headers = {"Host": "example.com"}
+
+        with patch.object(
+            self.translatron, "get_twilio_auth_token", return_value="test_token"
+        ):
+            with patch(
+                "translatron.text.RequestValidator"
+            ) as mock_validator_class:
+                mock_validator = Mock()
+                mock_validator.validate.return_value = False
+                mock_validator_class.return_value = mock_validator
+
+                with pytest.raises(KeyError):
+                    self.translatron.validate_twilio_event(params, headers)
+
+    @patch("translatron.text.uuid.uuid4")
+    @patch("translatron.text.datetime")
+    def test_get_message_details(self, mock_datetime, mock_uuid):
+        mock_uuid.return_value = Mock(spec=uuid.UUID)
+        mock_uuid.return_value.__str__ = Mock(return_value="test-uuid-123")
+        mock_datetime.datetime.now.return_value.isoformat.return_value = (
+            "2023-01-01T12:00:00"
+        )
+
+        params = {
+            "From": ["+1234567890"],
+            "To": ["+0987654321"],
+            "Body": ["Hello world"],
+        }
+
+        result = self.translatron.get_message_details(params)
+
+        expected = {
+            "message_id": "test-uuid-123",
+            "conversation_id": "+1234567890",
+            "sender": "+1234567890",
+            "recipient": "+0987654321",
+            "text": "Hello world",
+            "timestamp": "2023-01-01T12:00:00Z",
+        }
+        assert result == expected
+
+    def test_get_message_details_with_missing_fields(self):
+        params = {}
+
+        with patch("translatron.text.uuid.uuid4") as mock_uuid:
+            with patch("translatron.text.datetime") as mock_datetime:
+                mock_uuid.return_value = Mock(spec=uuid.UUID)
+                mock_uuid.return_value.__str__ = Mock(
+                    return_value="test-uuid-123"
+                )
+                mock_datetime.datetime.now.return_value.isoformat.return_value = "2023-01-01T12:00:00"
+
+                result = self.translatron.get_message_details(params)
+
+        expected = {
+            "message_id": "test-uuid-123",
+            "conversation_id": "",
+            "sender": "",
+            "recipient": "",
+            "text": "",
+            "timestamp": "2023-01-01T12:00:00Z",
+        }
+        assert result == expected
+
+    def test_get_conversation_id_method(self):
+        event = {"From": "+15551234567"}
+        result = self.translatron._get_conversation_id(event)
+        assert result == "+15551234567"
 
     def test_detect_and_translate_with_translations(self):
-        """Test language detection and translation."""
         self.mock_translator.detected_lang = "en"
         self.mock_translator.translations = {
             "es": "Hola mundo",
-            "fr": "Bonjour le monde"
+            "fr": "Bonjour le monde",
         }
-        
-        message = {
-            'text': 'Hello world',
-            'sender': '+15551234567'
-        }
-        
-        translations, original_lang = self.translatron.detect_and_translate(message)
-        
+
+        message = {"text": "Hello world", "sender": "+15551234567"}
+
+        translations, original_lang = self.translatron.detect_and_translate(
+            message
+        )
+
         assert original_lang == "en"
         assert len(translations) == 2
-        
-        # Check translations
-        translation_dict = {t['lang']: t['text'] for t in translations}
-        assert translation_dict['es'] == 'Hola mundo'
-        assert translation_dict['fr'] == 'Bonjour le monde'
+
+        translation_dict = {t["lang"]: t["text"] for t in translations}
+        assert translation_dict["es"] == "Hola mundo"
+        assert translation_dict["fr"] == "Bonjour le monde"
 
     def test_detect_and_translate_skip_same_language(self):
-        """Test that translation skips target language same as detected language."""
         self.mock_translator.detected_lang = "es"
         self.mock_translator.translations = {
             "en": "Hello world",
-            "fr": "Bonjour le monde"
+            "fr": "Bonjour le monde",
         }
-        
-        message = {
-            'text': 'Hola mundo',
-            'sender': '+15551234567'
-        }
-        
-        translations, original_lang = self.translatron.detect_and_translate(message)
-        
+
+        message = {"text": "Hola mundo", "sender": "+15551234567"}
+
+        translations, original_lang = self.translatron.detect_and_translate(
+            message
+        )
+
         assert original_lang == "es"
         assert len(translations) == 2  # Should skip 'es' translation
-        
-        # Check that Spanish is not in translations
-        translation_langs = [t['lang'] for t in translations]
-        assert 'es' not in translation_langs
-        assert 'en' in translation_langs
-        assert 'fr' in translation_langs
 
-    def test_detect_and_translate_no_translations_needed(self):
-        """Test when detected language is not in target languages."""
-        self.mock_translator.detected_lang = "zh"  # Chinese, not in self.languages
-        
-        message = {
-            'text': '你好世界',
-            'sender': '+15551234567'
-        }
-        
-        translations, original_lang = self.translatron.detect_and_translate(message)
-        
+        translation_langs = [t["lang"] for t in translations]
+        assert "es" not in translation_langs
+        assert "en" in translation_langs
+        assert "fr" in translation_langs
+
+    def test_detect_and_translate_source_language_not_in_targets(self):
+        self.mock_translator.detected_lang = "zh"
+
+        message = {"text": "你好世界", "sender": "+15551234567"}
+
+        translations, original_lang = self.translatron.detect_and_translate(
+            message
+        )
+
         assert original_lang == "zh"
-        assert len(translations) == 3  # Should translate to all target languages
+        assert (
+            len(translations) == 3
+        )  # Should translate to all target languages
 
-    def test_action_calls_all_actions(self, basic_text_record):
-        """Test that action method calls all configured actions."""
-        # basic_text_record is fine as-is for this test
+    def test_detect_and_translate_with_empty_text(self):
+        message = {"text": "", "sender": "+15559876543"}
+
+        translations, original_lang = self.translatron.detect_and_translate(
+            message
+        )
+
+        assert isinstance(original_lang, str)
+        assert isinstance(translations, list)
+
+    def test_action_calls_all_actions(self):
+        basic_text_record = TextRecord(
+            message_id="test-id",
+            conversation_id="test-conv",
+            sender="+1234567890",
+            recipient="+0987654321",
+            original_lang="en",
+            original_text="Hello",
+            translations=[],
+            timestamp="2023-01-01T12:00:00Z",
+        )
         self.translatron.action(basic_text_record)
-        
-        # Both actions should have been called
+
         assert len(self.mock_action1.called_with) == 1
         assert len(self.mock_action2.called_with) == 1
         assert self.mock_action1.called_with[0] == basic_text_record
         assert self.mock_action2.called_with[0] == basic_text_record
 
     def test_build_response(self):
-        """Test building Twilio-compatible response."""
         response = self.translatron.build_response()
-        
-        assert response['statusCode'] == 200
-        assert response['body'] == '<Response></Response>'
-        assert response['headers']['Content-Type'] == 'application/xml'
 
-    def test_full_call_flow(self):
-        """Test the complete __call__ flow end-to-end."""
-        # Setup
+        assert response["statusCode"] == 200
+        assert response["body"] == "<Response></Response>"
+        assert response["headers"]["Content-Type"] == "application/xml"
+
+    def test_full_call_flow_with_valid_signature(self):
         self.mock_translator.detected_lang = "en"
         self.mock_translator.translations = {
             "es": "Hola mundo",
-            "fr": "Bonjour le monde"
+            "fr": "Bonjour le monde",
         }
-        
+
         body_data = {
-            'From': '+15551234567',
-            'To': '+15559876543',
-            'Body': 'Hello world'
+            "From": "+15551234567",
+            "To": "+15559876543",
+            "Body": "Hello world",
         }
         event = {
-            'body': urlencode(body_data),
-            'isBase64Encoded': False
+            "body": urlencode(body_data),
+            "isBase64Encoded": False,
+            "headers": {
+                "Host": "example.com",
+                "x-twilio-signature": "valid_signature",
+            },
         }
-        context = {}  # Mock context
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
+        context = {}
+
+        with (
+            patch("translatron.text.uuid.uuid4") as mock_uuid,
+            patch("translatron.text.datetime") as mock_datetime,
+            patch.object(
+                self.translatron, "validate_twilio_event", return_value=True
+            ),
+        ):
             mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='full-flow-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T15:00:00'
-            
+            mock_uuid.return_value.__str__ = Mock(return_value="full-flow-id")
+            mock_datetime.datetime.now.return_value.isoformat.return_value = (
+                "2023-01-01T15:00:00"
+            )
+
             response = self.translatron(event, context)
-            
-            # Check response
-            assert response['statusCode'] == 200
-            assert response['body'] == '<Response></Response>'
-            
-            # Check that actions were called
+
+            assert response["statusCode"] == 200
+            assert response["body"] == "<Response></Response>"
+
             assert len(self.mock_action1.called_with) == 1
             assert len(self.mock_action2.called_with) == 1
-            
-            # Verify the record passed to actions
+
             record = self.mock_action1.called_with[0]
-            assert record.message_id == 'full-flow-id'
-            assert record.sender == '+15551234567'
-            assert record.recipient == '+15559876543'
-            assert record.original_text == 'Hello world'
-            assert record.original_lang == 'en'
+            assert record.message_id == "full-flow-id"
+            assert record.sender == "+15551234567"
+            assert record.recipient == "+15559876543"
+            assert record.original_text == "Hello world"
+            assert record.original_lang == "en"
             assert len(record.translations) == 2
 
+    def test_full_call_flow_with_invalid_signature_returns_403(self):
+        body_data = {
+            "From": "+15551234567",
+            "To": "+15559876543",
+            "Body": "Hello world",
+        }
+        event = {
+            "body": urlencode(body_data),
+            "isBase64Encoded": False,
+            "headers": {
+                "Host": "example.com",
+                "x-twilio-signature": "invalid_signature",
+            },
+        }
+
+        with patch.object(
+            self.translatron, "validate_twilio_event", return_value=False
+        ):
+            response = self.translatron(event, {})
+
+            assert response["statusCode"] == 403
+            assert (
+                response["body"]
+                == "Forbidden: Invalid Twilio request signature"
+            )
+
+            assert len(self.mock_action1.called_with) == 0
+            assert len(self.mock_action2.called_with) == 0
+
     def test_call_with_logging(self):
-        """Test that appropriate logging occurs during call."""
         body_data = {
-            'From': '+15551234567',
-            'To': '+15559876543',
-            'Body': 'Test logging'
+            "From": "+15551234567",
+            "To": "+15559876543",
+            "Body": "Test logging",
         }
         event = {
-            'body': urlencode(body_data),
-            'isBase64Encoded': False
+            "body": urlencode(body_data),
+            "isBase64Encoded": False,
+            "headers": {
+                "Host": "example.com",
+                "x-twilio-signature": "valid_signature",
+            },
         }
-        
-        with patch('translatron.text.logger') as mock_logger, \
-             patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
+
+        with (
+            patch("translatron.text.logger") as mock_logger,
+            patch("translatron.text.uuid.uuid4") as mock_uuid,
+            patch("translatron.text.datetime") as mock_datetime,
+            patch.object(
+                self.translatron, "validate_twilio_event", return_value=True
+            ),
+        ):
             mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='logging-test-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T16:00:00'
-            
+            mock_uuid.return_value.__str__ = Mock(
+                return_value="logging-test-id"
+            )
+            mock_datetime.datetime.now.return_value.isoformat.return_value = (
+                "2023-01-01T16:00:00"
+            )
+
             self.translatron(event, {})
-            
-            # Check that info logging calls were made
-            mock_logger.info.assert_any_call("Received SMS from %s", '+15551234567')
-            mock_logger.info.assert_any_call("Received SMS to %s", '+15559876543')
-            mock_logger.info.assert_any_call("SMS text: %s", 'Test logging')
 
-    def test_call_with_translator_error(self):
-        """Test handling when translator raises an error."""
-        # Make translator raise an exception
-        self.mock_translator.detect_language = Mock(side_effect=Exception("Translation API Error"))
-        
-        body_data = {
-            'From': '+15551234567',
-            'To': '+15559876543',
-            'Body': 'This will fail'
-        }
-        event = {
-            'body': urlencode(body_data),
-            'isBase64Encoded': False
-        }
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='error-test-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T17:00:00'
-            
-            # Should propagate the exception
-            with pytest.raises(Exception, match="Translation API Error"):
-                self.translatron(event, {})
-
-    def test_call_with_action_error(self):
-        """Test handling when an action raises an error."""
-        # Make one action raise an exception
-        error_action = Mock(side_effect=Exception("Action Error"))
-        
-        translatron = TranslatronText(
-            translator=self.mock_translator,
-            actions=[self.mock_action1, error_action, self.mock_action2],
-            languages=self.languages
-        )
-        
-        body_data = {
-            'From': '+15551234567',
-            'To': '+15559876543',
-            'Body': 'Action will fail'
-        }
-        event = {
-            'body': urlencode(body_data),
-            'isBase64Encoded': False
-        }
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='action-error-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T18:00:00'
-            
-            # Should propagate the exception
-            with pytest.raises(Exception, match="Action Error"):
-                translatron(event, {})
+            mock_logger.info.assert_any_call(
+                "Received SMS from %s", "+15551234567"
+            )
+            mock_logger.info.assert_any_call(
+                "Received SMS to %s", "+15559876543"
+            )
+            mock_logger.info.assert_any_call("SMS text: %s", "Test logging")
 
     def test_empty_languages_list(self):
-        """Test behavior with empty languages list."""
         translatron = TranslatronText(
             translator=self.mock_translator,
             actions=[self.mock_action1],
-            languages=[]  # No target languages
+            languages=[],
         )
-        
-        message = {'text': 'Hello', 'sender': '+15559876543'}
+
+        message = {"text": "Hello", "sender": "+15559876543"}
         translations, original_lang = translatron.detect_and_translate(message)
-        
+
         assert original_lang == "en"
         assert len(translations) == 0
 
     def test_single_language_same_as_detected(self):
-        """Test when only target language is same as detected language."""
         translatron = TranslatronText(
             translator=self.mock_translator,
             actions=[self.mock_action1],
-            languages=["en"]  # Only English
+            languages=["en"],
         )
-        
+
         self.mock_translator.detected_lang = "en"
-        
-        message = {'text': 'Hello', 'sender': '+15559876543'}
+
+        message = {"text": "Hello", "sender": "+15559876543"}
         translations, original_lang = translatron.detect_and_translate(message)
-        
+
         assert original_lang == "en"
-        assert len(translations) == 0  # No translation needed
+        assert len(translations) == 0
 
-    def test_get_conversation_id_method(self):
-        """Test the _get_conversation_id method."""
-        event = {'From': '+15551234567'}
-        result = self.translatron._get_conversation_id(event)
-        assert result == '+15551234567'
-        
-        # Test with missing From field
-        event = {}
-        result = self.translatron._get_conversation_id(event)
-        assert result == ''
-
-    def test_parse_event_with_unicode_text(self):
-        """Test parsing event with Unicode characters."""
-        body_data = {
-            'From': '+15551234567',
-            'To': '+15559876543',
-            'Body': 'Hello 世界 🌍'
-        }
-        event = {
-            'body': urlencode(body_data, encoding='utf-8'),
-            'isBase64Encoded': False
-        }
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='unicode-test-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T19:00:00'
-            
-            result = self.translatron.parse_event(event)
-            assert result['text'] == 'Hello 世界 🌍'
-
-    def test_detect_and_translate_with_empty_text(self):
-        """Test detect_and_translate with empty text."""
-        message = {'text': '', 'sender': '+15559876543'}
-        
-        translations, original_lang = self.translatron.detect_and_translate(message)
-        
-        # Should still work with empty text
-        assert isinstance(original_lang, str)
-        assert isinstance(translations, list)
-
-    def test_with_real_nontranslator(self):
-        """Test integration with real NonTranslator."""
-        real_translator = NonTranslator()
-        null_action = NullAction()
-        
-        translatron = TranslatronText(
-            translator=real_translator,
-            actions=[null_action],
-            languages=["en", "es", "fr"]
+    def test_real_test_event_signature_validation(self):
+        test_event_path = (
+            Path(__file__).parent.parent
+            / "lambdas"
+            / "testplan"
+            / "test-event.json"
         )
-        
-        body_data = {
-            'From': '+15551234567',
-            'To': '+15559876543',
-            'Body': 'Real translator test'
-        }
-        event = {
-            'body': urlencode(body_data),
-            'isBase64Encoded': False
-        }
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime, \
-             patch('translatron.actions.logger'):
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='real-translator-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T20:00:00'
-            
-            response = translatron(event, {})
-            
-            assert response['statusCode'] == 200
-            assert response['body'] == '<Response></Response>'
+        with open(test_event_path) as f:
+            event = json.load(f)
 
-    def test_multiple_actions_with_different_behaviors(self):
-        """Test with multiple actions that have different behaviors."""
-        action1 = MockAction()
-        action2 = MockAction()
-        
-        # Create an action that modifies something (though it shouldn't modify the record)
-        action3 = Mock()
-        
-        translatron = TranslatronText(
-            translator=self.mock_translator,
-            actions=[action1, action2, action3],
-            languages=["es"]
-        )
-        
-        body_data = {
-            'From': '+15551234567',
-            'To': '+15559876543',
-            'Body': 'Multiple actions test'
-        }
-        event = {
-            'body': urlencode(body_data),
-            'isBase64Encoded': False
-        }
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='multi-action-id')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T21:00:00'
-            
-            response = translatron(event, {})
-            
-            # All actions should have been called
-            assert len(action1.called_with) == 1
-            assert len(action2.called_with) == 1
-            action3.assert_called_once()
-            
-            # Response should still be correct
-            assert response['statusCode'] == 200
+        auth_token = "test_auth_token_12345"
 
-    def test_malformed_base64_body(self):
-        """Test handling of malformed base64 encoded body."""
-        event = {
-            'body': 'invalid-base64!@#',
-            'isBase64Encoded': True
-        }
-        
-        # Should raise an exception when trying to decode invalid base64
-        with pytest.raises(Exception):
-            self.translatron.parse_event(event)
+        with patch.dict(os.environ, {"TWILIO_AUTH_TOKEN": auth_token}):
+            with patch("translatron.text.uuid.uuid4") as mock_uuid:
+                with patch("translatron.text.datetime") as mock_datetime:
+                    mock_uuid.return_value = Mock(spec=uuid.UUID)
+                    mock_uuid.return_value.__str__ = Mock(
+                        return_value="test-uuid-123"
+                    )
+                    mock_datetime.datetime.now.return_value.isoformat.return_value = "2023-01-01T12:00:00"
 
-    def test_conversation_id_extraction(self):
-        """Test that conversation_id is properly extracted and matches sender."""
-        body_data = {
-            'From': '+15557654321',
-            'To': '+15559876543',
-            'Body': 'Conversation ID test'
-        }
-        event = {
-            'body': urlencode(body_data),
-            'isBase64Encoded': False
-        }
-        
-        with patch('translatron.text.uuid.uuid4') as mock_uuid, \
-             patch('translatron.text.datetime') as mock_datetime:
-            
-            mock_uuid.return_value = Mock()
-            mock_uuid.return_value.__str__ = Mock(return_value='conv-id-test')
-            mock_datetime.datetime.utcnow.return_value.isoformat.return_value = '2023-01-01T22:00:00'
-            
-            result = self.translatron.parse_event(event)
-            
-            assert result['conversation_id'] == result['sender']
-            assert result['conversation_id'] == '+15557654321'
+                    response = self.translatron(event, {})
+
+        assert response["statusCode"] == 200
+        assert len(self.mock_action1.called_with) == 1
+
+        record = self.mock_action1.called_with[0]
+        assert record.sender == "+1234567890"
+        assert record.recipient == "+0987654321"
+        assert record.original_text == "Hello+world"

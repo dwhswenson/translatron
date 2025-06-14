@@ -5,6 +5,8 @@ import uuid
 from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
+import hmac
+from hashlib import sha1
 
 import pytest
 
@@ -12,6 +14,40 @@ from translatron.text import TranslatronText
 from translatron.record import TextRecord
 from translatron.translator import Translator
 from translatron.actions import ActionBase
+
+
+def generate_twilio_signature(uri: str, params: dict, auth_token: str) -> str:
+    """Generate a Twilio signature for request validation.
+    
+    This follows the same algorithm as Twilio's RequestValidator:
+    1. Sort the parameter names alphabetically
+    2. Concatenate the URI and sorted parameters
+    3. Create an HMAC-SHA1 hash using the auth token
+    4. Base64 encode the hash
+    
+    Args:
+        uri: The full URL that Twilio requested on your server
+        params: Dictionary of POST variables
+        auth_token: Your Twilio auth token
+        
+    Returns:
+        The computed signature string
+    """
+    token = auth_token.encode('utf-8')
+    s = uri
+
+    if params:
+        for param_name in sorted(set(params.keys())):
+            # TODO: check if I actually need the non-listified form
+            values = params[param_name] if isinstance(params[param_name], list) else [params[param_name]]
+            
+            for value in sorted(values):
+                s += param_name + str(value)
+    
+    mac = hmac.new(token, s.encode('utf-8'), sha1)
+    computed = base64.b64encode(mac.digest())
+    
+    return computed.decode('utf-8').strip()
 
 
 class MockTranslator(Translator):
@@ -143,38 +179,31 @@ class TestTranslatronText:
             self.translatron.parse_event_params(event)
 
     @pytest.mark.parametrize(
-        "signature,expected_result",
+        "auth_token,expected_result",
         [
-            ("valid_signature", True),
-            ("invalid_signature", False),
+            ("test_token_123", True),  # Valid token
+            ("wrong_token_456", False),  # Invalid token
         ],
     )
-    @patch("translatron.text.RequestValidator")
     def test_validate_twilio_event_signature_validation(
-        self, mock_validator_class, signature, expected_result
+        self, auth_token, expected_result
     ):
-        mock_validator = Mock()
-        mock_validator.validate.return_value = expected_result
-        mock_validator_class.return_value = mock_validator
-
         params = {"From": ["+1234567890"], "Body": ["Hello"]}
+        url = "https://example.com/"
+        
+        signature = generate_twilio_signature(url, params, auth_token)
+        
         headers = {
             "Host": "example.com",
-            "x-twilio-signature": signature,
+            "x-twilio-signature": signature if expected_result else "invalid_signature",
         }
 
         with patch.object(
-            self.translatron, "get_twilio_auth_token", return_value="test_token"
+            self.translatron, "get_twilio_auth_token", return_value="test_token_123"
         ):
             result = self.translatron.validate_twilio_event(params, headers)
 
         assert result is expected_result
-        mock_validator_class.assert_called_once_with("test_token")
-        mock_validator.validate.assert_called_once_with(
-            "https://example.com/",
-            {"From": "+1234567890", "Body": "Hello"},
-            signature,
-        )
 
     def test_validate_twilio_event_missing_signature_header(self):
         params = {"From": ["+1234567890"], "Body": ["Hello"]}
@@ -345,17 +374,23 @@ class TestTranslatronText:
             "fr": "Bonjour le monde",
         }
 
+        # Test data
+        auth_token = "test_token_123"
         body_data = {
             "From": "+15551234567",
             "To": "+15559876543",
             "Body": "Hello world",
         }
+        url = "https://example.com/"
+        
+        signature = generate_twilio_signature(url, body_data, auth_token)
+        
         event = {
             "body": urlencode(body_data),
             "isBase64Encoded": False,
             "headers": {
                 "Host": "example.com",
-                "x-twilio-signature": "valid_signature",
+                "x-twilio-signature": signature,
             },
         }
         context = {}
@@ -364,7 +399,7 @@ class TestTranslatronText:
             patch("translatron.text.uuid.uuid4") as mock_uuid,
             patch("translatron.text.datetime") as mock_datetime,
             patch.object(
-                self.translatron, "validate_twilio_event", return_value=True
+                self.translatron, "get_twilio_auth_token", return_value=auth_token
             ),
         ):
             mock_uuid.return_value = Mock()
@@ -390,22 +425,27 @@ class TestTranslatronText:
             assert len(record.translations) == 2
 
     def test_full_call_flow_with_invalid_signature_returns_403(self):
+        auth_token = "test_token_123"
         body_data = {
             "From": "+15551234567",
             "To": "+15559876543",
             "Body": "Hello world",
         }
+        url = "https://example.com/"
+        
+        signature = generate_twilio_signature(url, body_data, "wrong_token_456")
+        
         event = {
             "body": urlencode(body_data),
             "isBase64Encoded": False,
             "headers": {
                 "Host": "example.com",
-                "x-twilio-signature": "invalid_signature",
+                "x-twilio-signature": signature,
             },
         }
 
         with patch.object(
-            self.translatron, "validate_twilio_event", return_value=False
+            self.translatron, "get_twilio_auth_token", return_value=auth_token
         ):
             response = self.translatron(event, {})
 

@@ -69,6 +69,7 @@ class TranslatronText:  # TODO: make this an ABC
         if event.get("isBase64Encoded", False):
             body_str = base64.b64decode(body_str).decode("utf-8")
 
+        logger.debug("Body string: %s", body_str)
         params = parse_qs(body_str, keep_blank_values=True)
         return params
 
@@ -76,14 +77,18 @@ class TranslatronText:  # TODO: make this an ABC
         auth_token = self.get_twilio_auth_token()
         validator = RequestValidator(auth_token)
 
-        host = headers.get("Host")
+        host = headers.get("host")
         if not host:
+            logger.error("Missing 'host' header in request")
             return False
 
         url = f"https://{host}/"  # for lambdas, this will be correct
         tw_sig = headers["x-twilio-signature"]
 
         validator_params = {k: v[0] for k, v in params.items()}
+        logger.debug("Validating Twilio request with URL: %s", url)
+        logger.debug("Twilio signature: %s", tw_sig)
+        logger.debug("Validator parameters: %s", validator_params)
 
         is_valid = validator.validate(url, validator_params, tw_sig)
         return is_valid

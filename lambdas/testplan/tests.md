@@ -8,6 +8,11 @@
 
 ## Testing
 
+- [ ] Use `create_test_event.py` to create a test event for the lambda:
+  ```bash
+  ./create_test_event.py | tee test-event.json | pbcopy
+  ```
+
 - [ ] Use the `test-event.json` file to test the lambda in the AWS console
   * Check whether this works using the CloudWatch logs.
   * If this doesn't work, there's probably a problem with the code.
@@ -15,7 +20,7 @@
 - [ ] Directly invoke the lambda from the AWS CLI:
   ```bash
   aws lambda invoke \
-    --function-name  translatron-sms-handler \
+    --function-name  translatron-sms-handler-dev \
     --payload file://test-event.json \
     --cli-binary-format raw-in-base64-out \
     --log-type Tail  /dev/null \

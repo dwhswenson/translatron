@@ -8,7 +8,8 @@ from translatron.actions import StoreToDynamoDB, SendTranslatedSMS
 
 import logging
 logging.getLogger('translatron').setLevel(logging.INFO)
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 class MyTranslatron(TranslatronText):
     pass

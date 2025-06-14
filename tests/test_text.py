@@ -1,8 +1,6 @@
 import base64
-import json
 import os
 import uuid
-from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 import hmac
@@ -14,6 +12,7 @@ from translatron.text import TranslatronText
 from translatron.record import TextRecord
 from translatron.translator import Translator
 from translatron.actions import ActionBase
+from translatron.test_events import create_twilio_test_event
 
 
 def generate_twilio_signature(uri: str, params: dict, auth_token: str) -> str:
@@ -194,7 +193,7 @@ class TestTranslatronText:
         signature = generate_twilio_signature(url, params, auth_token)
         
         headers = {
-            "Host": "example.com",
+            "host": "example.com",
             "x-twilio-signature": signature if expected_result else "invalid_signature",
         }
 
@@ -207,7 +206,7 @@ class TestTranslatronText:
 
     def test_validate_twilio_event_missing_signature_header(self):
         params = {"From": ["+1234567890"], "Body": ["Hello"]}
-        headers = {"Host": "example.com"}
+        headers = {"host": "example.com"}
 
         with patch.object(
             self.translatron, "get_twilio_auth_token", return_value="test_token"
@@ -389,7 +388,7 @@ class TestTranslatronText:
             "body": urlencode(body_data),
             "isBase64Encoded": False,
             "headers": {
-                "Host": "example.com",
+                "host": "example.com",
                 "x-twilio-signature": signature,
             },
         }
@@ -439,7 +438,7 @@ class TestTranslatronText:
             "body": urlencode(body_data),
             "isBase64Encoded": False,
             "headers": {
-                "Host": "example.com",
+                "host": "example.com",
                 "x-twilio-signature": signature,
             },
         }
@@ -468,7 +467,7 @@ class TestTranslatronText:
             "body": urlencode(body_data),
             "isBase64Encoded": False,
             "headers": {
-                "Host": "example.com",
+                "host": "example.com",
                 "x-twilio-signature": "valid_signature",
             },
         }
@@ -528,27 +527,35 @@ class TestTranslatronText:
         assert len(translations) == 0
 
     def test_real_test_event_signature_validation(self):
-        test_event_path = (
-            Path(__file__).parent.parent
-            / "lambdas"
-            / "testplan"
-            / "test-event.json"
+        # Create a test event using the core functionality
+        url = "https://example.com/"
+        param_dict = {
+            "From": "+1234567890",
+            "To": "+0987654321",
+            "Body": "Hello world",
+        }
+        
+        # Get the auth token from environment
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+        if not auth_token:
+            pytest.skip("TWILIO_AUTH_TOKEN environment variable not set")
+        
+        # Create and validate the test event
+        event = create_twilio_test_event(
+            url=url,
+            param_dict=param_dict,
+            auth_token=auth_token,
         )
-        with open(test_event_path) as f:
-            event = json.load(f)
 
-        auth_token = "test_auth_token_12345"
+        with patch("translatron.text.uuid.uuid4") as mock_uuid:
+            with patch("translatron.text.datetime") as mock_datetime:
+                mock_uuid.return_value = Mock(spec=uuid.UUID)
+                mock_uuid.return_value.__str__ = Mock(
+                    return_value="test-uuid-123"
+                )
+                mock_datetime.datetime.now.return_value.isoformat.return_value = "2023-01-01T12:00:00"
 
-        with patch.dict(os.environ, {"TWILIO_AUTH_TOKEN": auth_token}):
-            with patch("translatron.text.uuid.uuid4") as mock_uuid:
-                with patch("translatron.text.datetime") as mock_datetime:
-                    mock_uuid.return_value = Mock(spec=uuid.UUID)
-                    mock_uuid.return_value.__str__ = Mock(
-                        return_value="test-uuid-123"
-                    )
-                    mock_datetime.datetime.now.return_value.isoformat.return_value = "2023-01-01T12:00:00"
-
-                    response = self.translatron(event, {})
+                response = self.translatron(event, {})
 
         assert response["statusCode"] == 200
         assert len(self.mock_action1.called_with) == 1
@@ -556,4 +563,4 @@ class TestTranslatronText:
         record = self.mock_action1.called_with[0]
         assert record.sender == "+1234567890"
         assert record.recipient == "+0987654321"
-        assert record.original_text == "Hello+world"
+        assert record.original_text == "Hello world"

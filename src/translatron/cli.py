@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 import os
 import sys
+import json
 import click
 from twilio.rest import Client
+
+from .test_events import create_twilio_test_event, validate_test_event
 
 # Retrieve Twilio credentials from environment variables
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
@@ -19,7 +22,7 @@ DEFAULT_PREFERRED_AREA_CODES = ["312", "773"]
 
 @click.group()
 def cli():
-    """CLI for managing Twilio phone numbers."""
+    """CLI for managing Twilio phone numbers and test events."""
     pass
 
 @cli.command("purchase-number")
@@ -107,6 +110,67 @@ def set_webhooks(phone_number, sms_webhook, voice_webhook):
     except Exception as e:
         click.echo(f"Failed to update phone number {phone_number}: {e}")
         sys.exit(1)
+
+@cli.command("create-test-event")
+@click.option(
+    "--url", "-u",
+    default="https://example.com/",
+    help="The full URL that Twilio will request (default: https://example.com/)"
+)
+@click.option(
+    "--from-number", "-f",
+    default="+1234567890",
+    help="The 'From' phone number (default: +1234567890)"
+)
+@click.option(
+    "--to-number", "-t",
+    default="+0987654321",
+    help="The 'To' phone number (default: +0987654321)"
+)
+@click.option(
+    "--message", "-m",
+    default="Hello world",
+    help="The message body to include in the test event (default: Hello world)"
+)
+@click.option(
+    "--no-base64/--base64",
+    default=False,
+    help="Whether to base64 encode the body (default: --base64)"
+)
+def create_test_event(url: str, from_number: str, to_number: str, message: str, no_base64: bool):
+    """Create a test event for Twilio webhook testing.
+    
+    This command creates a test event that can be used to test your Twilio webhook
+    handler. The event includes a valid Twilio signature and can be used with AWS
+    Lambda test events or other testing tools.
+    
+    The default values match those used in the test suite:
+    - URL: https://example.com/
+    - From: +1234567890
+    - To: +0987654321
+    - Message: Hello world
+    """
+    # Create test event
+    param_dict = {
+        "From": from_number,
+        "To": to_number,
+        "Body": message,
+    }
+    
+    event = create_twilio_test_event(
+        url=url,
+        param_dict=param_dict,
+        auth_token=TWILIO_AUTH_TOKEN,
+        base64_encode=not no_base64,
+    )
+    
+    # Validate the event
+    if not validate_test_event(event, TWILIO_AUTH_TOKEN):
+        click.echo("Error: Generated test event failed validation!", err=True)
+        sys.exit(1)
+    
+    # Output the event to stdout
+    click.echo(json.dumps(event, indent=2))
 
 if __name__ == '__main__':
     cli()

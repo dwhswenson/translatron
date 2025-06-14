@@ -51,7 +51,9 @@ def sample_twilio_event():
         'body': 'From=%2B15551234567&To=%2B15559876543&Body=Hello%20world',
         'isBase64Encoded': False,
         'headers': {
-            'Content-Type': 'application/x-www-form-urlencoded'
+            'content-type': 'application/x-www-form-urlencoded',
+            'host': 'example.com',
+            'x-twilio-signature': 'test_signature'
         }
     }
 
@@ -73,6 +75,8 @@ def sample_base64_twilio_event():
         'body': encoded_body,
         'isBase64Encoded': True,
         'headers': {
-            'Content-Type': 'application/x-www-form-urlencoded'
+            'content-type': 'application/x-www-form-urlencoded',
+            'host': 'example.com',
+            'x-twilio-signature': 'test_signature'
         }
     }

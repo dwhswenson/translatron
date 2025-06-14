@@ -8,9 +8,9 @@
 
 ## Testing
 
-- [ ] Use `create_test_event.py` to create a test event for the lambda:
+- [ ] Use `translatron create-test-event` to create a test event for the lambda:
   ```bash
-  ./create_test_event.py | tee test-event.json | pbcopy
+  translatron create-test-event | tee test-event.json | pbcopy
   ```
 
 - [ ] Use the `test-event.json` file to test the lambda in the AWS console
@@ -27,7 +27,7 @@
     | jq -r '.LogResult' | base64 -d
   ```
 
-- [ ] Use the `test-event.json` file to test the lambda's URL locally with:
+- [ ] Use the `test-event.json` file to test the lambda's URL locally with: (todo: add signature to request)
   ```bash
   curl -X POST $LAMBDA_URL \
    -H "Content-Type: application/json" \

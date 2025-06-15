@@ -39,7 +39,7 @@ dev = [
 
 [project.urls]
 homepage      = "https://github.com/dwhswenson/translatron"
-documentation = "https://your-org.github.io/your-package"
+#documentation = "https://your-org.github.io/your-package"
 repository    = "https://github.com/dwhswenson/translatron" 
 changelog     = "https://github.com/dwhswenson/translatron/releases"
 

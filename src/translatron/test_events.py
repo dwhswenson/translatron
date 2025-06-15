@@ -1,5 +1,3 @@
-"""Test event creation utilities for Twilio webhook testing."""
-
 import base64
 from typing import Dict, Any
 from urllib.parse import quote_plus, parse_qs

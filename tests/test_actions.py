@@ -1,9 +1,9 @@
 import pytest
-import os
 import boto3
 from unittest.mock import Mock, patch, call
 from moto import mock_aws
 from twilio.rest import Client as TwilioClient
+from typing import Optional, List, Tuple
 
 from translatron.actions import ActionBase, NullAction, StoreToDynamoDB, SendTranslatedSMS
 from translatron.record import TextRecord
@@ -251,8 +251,16 @@ class TestSendTranslatedSMS:
         self.mock_twilio_client.messages.create.assert_not_called()
 
     def test_testing_override_msg_pairs(self, basic_text_record):
-        """Test the testing override functionality."""
-        # Add the test sender to user_info temporarily for this test
+        class TestOverrideSMS(SendTranslatedSMS):
+            def _testing_override_msg_pairs(self, record: TextRecord) -> Optional[List[Tuple[str, str]]]:
+                if record.sender == "+13121234567":
+                    return [("+15551111111", "fa")]
+                return None
+
+        # Create instance of test subclass
+        test_action = TestOverrideSMS(self.user_info, self.mock_twilio_client)
+        
+        # Add test sender to user_info
         self.user_info["+15551234567"]["+13121234567"] = {"name": "TestUser", "lang": "en"}
         
         record = basic_text_record.model_copy(update={
@@ -260,34 +268,45 @@ class TestSendTranslatedSMS:
             "translations": [{"lang": "fa", "text": "پیام آزمایشی"}]
         })
         
-        test_phone = "+15551111111"
-        with patch.dict(os.environ, {'TEST_PHONE': test_phone}):
-            mock_message = Mock()
-            self.mock_twilio_client.messages.create.return_value = mock_message
-            
-            self.action(record)
-            
-            # Should send only to the test phone with Farsi translation
-            self.mock_twilio_client.messages.create.assert_called_once_with(
-                body="پیام آزمایشی",
-                from_="+15551234567",
-                to=test_phone
-            )
+        mock_message = Mock()
+        self.mock_twilio_client.messages.create.return_value = mock_message
+        
+        test_action(record)
+        
+        # Should send only to the test phone with Farsi translation
+        self.mock_twilio_client.messages.create.assert_called_once_with(
+            body="پیام آزمایشی",
+            from_="+15551234567",
+            to="+15551111111"
+        )
 
-    def test_testing_override_without_test_phone_env(self, basic_text_record):
-        """Test testing override when TEST_PHONE env var is not set."""
+    def test_testing_override_not_triggered(self, basic_text_record):
+        class TestOverrideSMS(SendTranslatedSMS):
+            def _testing_override_msg_pairs(self, record: TextRecord) -> Optional[List[Tuple[str, str]]]:
+                if record.sender == "+13121234567":
+                    return [("+15551111111", "fa")]
+                return None
+
+        # Create instance of test subclass
+        test_action = TestOverrideSMS(self.user_info, self.mock_twilio_client)
+        
+        # Use a regular sender (not the test sender)
         record = basic_text_record.model_copy(update={
-            "sender": "+13121234567"  # Special test sender
+            "sender": "+15559876543",  # Alice
+            "translations": [{"lang": "es", "text": "Hola"}]
         })
         
-        # Make sure TEST_PHONE is not set
-        with patch.dict(os.environ, {}, clear=True):
-            # Since sender is not in user_info, should trigger unknown sender action
-            with patch('translatron.actions.logger') as mock_logger:
-                self.action(record)
-                mock_logger.warning.assert_called_once()
-            
-            self.mock_twilio_client.messages.create.assert_not_called()
+        mock_message = Mock()
+        self.mock_twilio_client.messages.create.return_value = mock_message
+        
+        test_action(record)
+        
+        # Should send to Bob (Spanish) and Charlie (French)
+        assert self.mock_twilio_client.messages.create.call_count == 2
+        calls = self.mock_twilio_client.messages.create.call_args_list
+        call_recipients = [call[1]['to'] for call in calls]
+        assert "+15559876544" in call_recipients  # Bob
+        assert "+15559876545" in call_recipients  # Charlie
 
     def test_send_sms_with_original_language_in_targets(self, basic_text_record):
         """Test sending SMS when original language matches a target user's language."""

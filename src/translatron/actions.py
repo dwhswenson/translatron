@@ -1,5 +1,4 @@
 # src/translatron/actions.py
-import os
 import boto3
 from typing import Optional, Dict, List, Tuple
 from twilio.rest import Client as TwilioClient
@@ -78,8 +77,7 @@ class SendTranslatedSMS(ActionBase):
 
         This should return None if the record isn't a test case.
         """
-        if record.sender == "+13121234567":
-            return [(os.getenv("TEST_PHONE"), "fa")]
+        return None
 
     def __call__(self, record: TextRecord) -> None:
         logger.info(f"Sending SMS with translated record: {record}")

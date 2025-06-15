@@ -57,8 +57,8 @@ class TranslatronText:  # TODO: make this an ABC
     # ---- overridable hooks -------------------------------------------------
     def _get_conversation_id(self, event: Dict[str, Any]) -> str:
         """Extract conversation ID from the event."""
-        sender = event.get("From", "")
-        return sender
+        sender = event.get("From", [""])[0]
+        return str(sender)
 
     def get_twilio_auth_token(self) -> str:
         return os.getenv("TWILIO_AUTH_TOKEN", "")
@@ -96,11 +96,11 @@ class TranslatronText:  # TODO: make this an ABC
     def get_message_details(
         self, params: Dict[str, List[str]]
     ) -> Dict[str, Any]:
-        sender = params.get("From", [""])[0]
+        sender = str(params.get("From", [""])[0])
         logger.info("Received SMS from %s", sender)
-        recipient = params.get("To", [""])[0]
+        recipient = str(params.get("To", [""])[0])
         logger.info("Received SMS to %s", recipient)
-        text = params.get("Body", [""])[0]
+        text = str(params.get("Body", [""])[0])
         logger.info("SMS text: %s", text)
         timestamp = (
             datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
@@ -109,7 +109,7 @@ class TranslatronText:  # TODO: make this an ABC
 
         message_id = str(uuid.uuid4())
         logger.info("Message ID: %s", message_id)
-        conversation_id = sender
+        conversation_id = str(self._get_conversation_id(params))
         logger.info("Conversation ID: %s", conversation_id)
 
         return {
